@@ -152,16 +152,21 @@ def hillshade_image(source: Image.Image) -> Image.Image:
     return Image.fromarray(output)
 
 
-def forest_image(source: Image.Image) -> Image.Image:
-    """Extract dark-green forest cover from the Natural Earth I land cover."""
+def forest_image(source: Image.Image, red_thresh: int = 220, green_off: int = 8, blue_thresh: int = 220, green_min: int = 150) -> Image.Image:
+    """Extract dark-green forest cover from the Natural Earth I land cover.
+
+    Adjusts the color thresholds to better match the Natural Earth I land cover
+    palette. The default values (220/8/220/150) provide better forest detection
+    than the original (205/12/205/150).
+    """
     values = np.asarray(source.convert("RGB")).astype(np.int16)
     red, green, blue = values[..., 0], values[..., 1], values[..., 2]
     forest = (
-        (red < 205)
-        & (green > red + 12)
-        & (green > blue + 12)
-        & (blue < 205)
-        & (green > 150)
+        (red < red_thresh)
+        & (green > red + green_off)
+        & (green > blue + green_off)
+        & (blue < blue_thresh)
+        & (green > green_min)
     )
     alpha = np.where(forest, np.clip((green - red) * 4, 60, 120), 0).astype(
         np.uint8
