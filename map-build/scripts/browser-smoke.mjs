@@ -1095,7 +1095,7 @@ async function run() {
 
     const findFeaturePoint = async (layers, label) =>
       cdp.waitFor(
-        `(() => {
+        `(async () => {
           const map = window.__southUpMap;
           if (!map || !map.loaded()) return null;
           const requested = ${JSON.stringify(layers)};
@@ -1112,12 +1112,25 @@ async function run() {
             "port-dot",
             "port-label",
             "park",
+            "wetland",
             "marine-label",
             "physio-label",
             "peak-dot",
             "peak-label",
           ];
           const features = map.queryRenderedFeatures({ layers: allLayers });
+          const topAt = (x, y) => {
+            const exact = map.queryRenderedFeatures([x, y], { layers: allLayers });
+            return exact.length
+              ? exact
+              : map.queryRenderedFeatures(
+                  [
+                    [x - 6, y - 6],
+                    [x + 6, y + 6],
+                  ],
+                  { layers: allLayers },
+                );
+          };
           for (const feature of features) {
             const name = feature.properties?.name;
             if (!name || !requested.includes(feature.layer?.id)) continue;
@@ -1135,34 +1148,35 @@ async function run() {
               }
             }
             for (const coordinate of coordinates) {
-              const point = map.project(coordinate);
-              if (
-                point.x < 24 ||
-                point.y < 130 ||
-                point.x > innerWidth - 24 ||
-                point.y > innerHeight - 120
-              ) {
+              const projected = map.project(coordinate);
+              // Hit-test the exact pixel that will be clicked, with the same
+              // fallback the app uses. Testing the unrounded projection can
+              // pick a feature that the click then resolves to its neighbour.
+              const x = Math.round(projected.x);
+              const y = Math.round(projected.y);
+              if (x < 24 || y < 130 || x > innerWidth - 24 || y > innerHeight - 120) {
                 continue;
               }
-              const exact = map.queryRenderedFeatures(point, { layers: allLayers });
-              const hits = exact.length
-                ? exact
-                : map.queryRenderedFeatures(
-                    [
-                      [point.x - 6, point.y - 6],
-                      [point.x + 6, point.y + 6],
-                    ],
-                    { layers: allLayers },
-                  );
+              const hits = topAt(x, y);
               if (
                 hits[0]?.layer?.id !== feature.layer?.id ||
                 hits[0]?.properties?.name !== name
               ) {
                 continue;
               }
+              // Labels can be placed a frame or two after a tile loads. Let the
+              // placement settle and confirm the click still resolves here.
+              await new Promise((resolve) => setTimeout(resolve, 250));
+              const settled = topAt(x, y);
+              if (
+                settled[0]?.layer?.id !== feature.layer?.id ||
+                settled[0]?.properties?.name !== name
+              ) {
+                continue;
+              }
               return {
-                x: Math.round(point.x),
-                y: Math.round(point.y),
+                x,
+                y,
                 name,
                 layer: feature.layer?.id,
               };
